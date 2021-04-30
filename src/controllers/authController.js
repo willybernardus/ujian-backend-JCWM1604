@@ -133,13 +133,16 @@ module.exports = {
     deactiveUser: async (req, res) => {
         try {
             const { token } = req.body;
+            if (!token) {
+                return res.status(400).send({ message: "token harus diisi" })
+            }
             const { uid } = req.user;
             let dataUpdate = {
                 status: 2
             };
             let sql = `update users set ? where uid = ?`
             await dba(sql, [dataUpdate, uid])
-            sql = `select uid, status from users where uid = ?`
+            sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
             const dataUser = await dba(sql, [uid])
             return res.status(200).send(dataUser)
         } catch (error) {
@@ -150,13 +153,16 @@ module.exports = {
     activateUser: async (req, res) => {
         try {
             const { token } = req.body;
+            if (!token) {
+                return res.status(400).send({ message: "token harus diisi" })
+            }
             const { uid } = req.user;
             let dataUpdate = {
                 status: 1
             };
-            let sql = `update users set ? where id = ?`
+            let sql = `update users set ? where uid = ?`
             await dba(sql, [dataUpdate, uid])
-            sql = `select uid,status from users where id = ?`
+            sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
             const dataUser = await dba(sql, [uid])
             return res.status(200).send(dataUser)
 
@@ -168,13 +174,16 @@ module.exports = {
     closeUser: async (req, res) => {
         try {
             const { token } = req.body;
+            if (!token) {
+                return res.status(400).send({ message: "token harus diisi" })
+            }
             const { uid } = req.user;
             let dataUpdate = {
                 status: 3
             };
-            let sql = `update users set ? where id = ?`
+            let sql = `update users set ? where uid = ?`
             await dba(sql, [dataUpdate, uid])
-            sql = `select uid,status from users where id = ?`
+            sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
             const dataUser = await dba(sql, [uid])
             return res.status(200).send(dataUser)
 
