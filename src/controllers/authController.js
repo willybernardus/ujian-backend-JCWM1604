@@ -28,6 +28,8 @@ module.exports = {
                 return res.status(400).send({ message: "password must contain at least a special character" })
             } if (password.length < 6) {
                 return res.status(400).send({ message: "password must contain at least 6 characters or more" })
+            } if (username.length < 6) {
+                return res.status(400).send({ message: "username at least has 6 characters" })
             }
             let sql = `select * from users where email = ?`
             let dataUsers = await dba(sql, [email])
@@ -46,7 +48,7 @@ module.exports = {
             }
             await dba(sql, [dataToSend]);
             // get lagi datanya sebagai response dari database
-            sql = `select * from users where uid = ?`;
+            sql = `select id, uid, username, email from users where uid = ?`;
             dataUsers = await dba(sql, [uid]);
             let dataToken = {
                 uid: dataUsers[0].uid,
@@ -66,14 +68,17 @@ module.exports = {
             if (!user || !password) {
                 return res.status(400).send({ message: 'bad request' })
             }
-            let sql = `select * from users where (email = ? or username = ?) and password = ? and status = 'deleted'`
-            // console.log(sql)
-            const deletedUser = await dba(sql, [user, user, hashpassword(password)])
-            // console.log(deletedUser, "ini deleted user")
-            if (deletedUser.length != 0) {
-                return res.status(403).send({ message: 'forbidden' })
+            let sql = `select * from users where (email = ? or username = ?) and password = ? and status = 2`
+            const deactiveUser = await dba(sql, [user, user, hashpassword(password)])
+            if (deactiveUser.length) {
+                return res.status(403).send({ message: 'user deactive' })
             }
-            sql = `select * from users where (email = ? or username = ?) and password = ?`
+            sql = `select * from users where (email = ? or username = ?) and password = ? and status = 3`
+            const closedUser = await dba(sql, [user, user, hashpassword(password)])
+            if (closedUser.length) {
+                return res.status(403).send({ message: `Oops! user's account has been closed, can not login anymore` })
+            }
+            sql = `select id, uid, username, email, status, role from users where (email = ? or username = ?) and password = ?`
             const dataUser = await dba(sql, [user, user, hashpassword(password)])
             if (dataUser.length) {
                 let dataToken = {
@@ -84,67 +89,39 @@ module.exports = {
                 res.set("x-token-access", tokenAccess);
                 return res.status(200).send({ ...dataUser[0], token: tokenAccess })
             } else {
-                return res.status(500).send({ message: "username/email tidak terdaftar atau password salah" })
+                return res.status(500).send({ message: "username / email has been registered or password is wrong" })
             }
         } catch (error) {
             console.error(error)
             return res.status(500).send({ message: 'server error' })
         }
     },
-    changeToAdmin: async (req, res) => {
-        try {
-            const { uid } = req.params;
-            if (req.params.uid === req.user.uid) {
-                let dataUpdate = {
-                    role: 1
-                };
-                let sql = `update users set ? where uid = ?`
-                await dba(sql, [dataUpdate, id])
-                return res.status(200).send({ message: "updated" })
-            }
-            return res.status(401).send({ message: "id unauthorize" })
-        } catch (error) {
-            console.error(error)
-            res.status(500).send({ message: "server error" })
-        }
-    },
-    deleteUser: async (req, res) => {
-        try {
-            const { id } = req.params;
-            if (req.params.id === req.user.id) {
-                let sql = `select * from users where id = ? and role = 'user'`
-                const roleUser = await dba(sql, [id])
-                if (!(roleUser.length)) {
-                    return res.status(400).send({ message: "role harus user" })
-                }
-                let dataUpdate = {
-                    status: 'deleted'
-                };
-                sql = `update users set ? where id = ?`
-                await dba(sql, [dataUpdate, id])
-                return res.status(200).send({ message: "account deleted" })
-            }
-            return res.status(401).send({ message: "id unauthorize" })
-        } catch (error) {
-            console.error(error)
-            res.status(500).send({ message: "server error" })
-        }
-    },
     deactiveUser: async (req, res) => {
         try {
             const { token } = req.body;
             if (!token) {
-                return res.status(400).send({ message: "token harus diisi" })
+                return res.status(400).send({ message: "token needed" })
             }
-            const { uid } = req.user;
-            let dataUpdate = {
-                status: 2
-            };
-            let sql = `update users set ? where uid = ?`
-            await dba(sql, [dataUpdate, uid])
-            sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
-            const dataUser = await dba(sql, [uid])
-            return res.status(200).send(dataUser)
+            if (token === req.token) {
+                // console.log('isi dari req.token', req.token)
+                const { uid } = req.user;
+                let sql = `select * from users where uid = ? and status = 3`
+                const userClosed = await dba(sql, [uid])
+                if (userClosed.length) {
+                    return res.status(403).send({ message: `Oops! user's account has been closed, can not deactivate account` })
+                }
+                let dataUpdate = {
+                    status: 2
+                };
+                sql = `update users set ? where uid = ?`
+                await dba(sql, [dataUpdate, uid])
+                sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
+                const dataUser = await dba(sql, [uid])
+                return res.status(200).send(dataUser)
+            } else {
+                // console.log('isi dari req.user', req.user)
+                return res.status(401).send({ message: "access denied" })
+            }
         } catch (error) {
             console.error(error)
             res.status(500).send({ message: "server error" })
@@ -154,17 +131,28 @@ module.exports = {
         try {
             const { token } = req.body;
             if (!token) {
-                return res.status(400).send({ message: "token harus diisi" })
+                return res.status(400).send({ message: "token needed" })
             }
-            const { uid } = req.user;
-            let dataUpdate = {
-                status: 1
-            };
-            let sql = `update users set ? where uid = ?`
-            await dba(sql, [dataUpdate, uid])
-            sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
-            const dataUser = await dba(sql, [uid])
-            return res.status(200).send(dataUser)
+            if (token === req.token) {
+                // console.log('isi dari req.token', req.token)
+                const { uid } = req.user;
+                let sql = `select * from users where uid = ? and status = 3`
+                const userClosed = await dba(sql, [uid])
+                if (userClosed.length) {
+                    return res.status(403).send({ message: `Oops! user's account has been closed, can not activate account` })
+                }
+                let dataUpdate = {
+                    status: 1
+                };
+                sql = `update users set ? where uid = ?`
+                await dba(sql, [dataUpdate, uid])
+                sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
+                const dataUser = await dba(sql, [uid])
+                return res.status(200).send(dataUser)
+            } else {
+                // console.log('isi dari req.user', req.user)
+                return res.status(401).send({ message: "access denied" })
+            }
 
         } catch (error) {
             console.error(error)
@@ -175,24 +163,28 @@ module.exports = {
         try {
             const { token } = req.body;
             if (!token) {
-                return res.status(400).send({ message: "token harus diisi" })
+                return res.status(400).send({ message: "token needed" })
             }
-            const { uid } = req.user;
-            let dataUpdate = {
-                status: 3
-            };
-            let sql = `update users set ? where uid = ?`
-            await dba(sql, [dataUpdate, uid])
-            sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
-            const dataUser = await dba(sql, [uid])
-            return res.status(200).send(dataUser)
-
+            if (token === req.token) {
+                // console.log('isi dari req.token', req.token)
+                const { uid } = req.user;
+                let dataUpdate = {
+                    status: 3
+                };
+                let sql = `update users set ? where uid = ?`
+                await dba(sql, [dataUpdate, uid])
+                sql = `select u.uid, s.status from users u join status s on u.status = s.id where uid = ?`
+                const dataUser = await dba(sql, [uid])
+                return res.status(200).send(dataUser)
+            } else {
+                // console.log('isi dari req.user', req.user)
+                return res.status(401).send({ message: "access denied" })
+            }
         } catch (error) {
             console.error(error)
             res.status(500).send({ message: "server error" })
         }
     },
-
 };
 
 
